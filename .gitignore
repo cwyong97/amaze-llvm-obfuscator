@@ -1,0 +1,8 @@
+build/
+*.o
+*.so
+*.ll
+*_bin
+*.i64
+*.yaml
+.DS_Store
