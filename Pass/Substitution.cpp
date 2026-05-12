@@ -131,7 +131,6 @@ bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist)
             int64_t table_00 = 0, table_01 = 0, table_10 = 0, table_11 = 0;
             bool applied = true;
             // int choice = dist(gen); //testing for other substitutions method
-
             switch (op->getOpcode())
             {
 
@@ -140,7 +139,7 @@ bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist)
                 // if (choice % 2 == 0) { //testing for other substitutions method
                 //     applyAddPolynomialObf(op, gen, dist);
                 // }
-                // applied = false;                
+                // applied = false;        
                 break;
             case Instruction::Sub:
                 table_00 = 0; table_01 = -1; table_10 = 1; table_11 = 0; // 真值表對應 Sub 的輸出1-1=0
@@ -156,6 +155,9 @@ bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist)
             case Instruction::Xor:
                 table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 0; // 真值表對應 Xor 的輸出1^1=0
                 break;
+            // case Instruction::ICmp:
+            //     table_00 = 1; table_01 = 0; table_10 = 0; table_11 = 1; // 真值表對應 ICmp 的輸出1^1=0
+            //     break;
             default:
                 applied = false;
                 break;

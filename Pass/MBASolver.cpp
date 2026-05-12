@@ -5,7 +5,7 @@
 
 namespace MBASolver {
 
-// 在 uint64_t 快速求奇數反元素的黑魔法 (Newton-Raphson Method)
+// 在 uint64_t 求奇數反元素(Newton-Raphson Method)
 uint64_t modInverse_odd(uint64_t c) {
     // c 必須是奇數！
     uint64_t inv = c; 
@@ -164,8 +164,14 @@ std::vector<int64_t> solve(
     
     // 自由變數 (index std::min(rows, cols) to cols-1)
     std::uniform_int_distribution<int64_t> free_var_dist(-8480526731661512249LL, 8480526731661512249LL);
+    int percentage = rand();
     for (int i = std::min(rows, cols); i < cols; ++i) {
         x_prime[i] = free_var_dist(gen);
+        // if (percentage%100 < 0) {
+        //     x_prime[i] = 0;
+        // } else {
+        //     x_prime[i] = free_var_dist(gen);
+        // }
     }
     
     // 轉回真實的解 x = T * x'
@@ -173,6 +179,9 @@ std::vector<int64_t> solve(
     for (int i = 0; i < cols; ++i) {
         for (int j = 0; j < cols; ++j) {
             x[i] = static_cast<int64_t>(static_cast<uint64_t>(x[i]) + static_cast<uint64_t>(T[i][j]) * static_cast<uint64_t>(x_prime[j]));
+            if (percentage%100 < 30) { //這裡可以調整生成比例
+                x[i] = 0;
+            }
         }
     }
     

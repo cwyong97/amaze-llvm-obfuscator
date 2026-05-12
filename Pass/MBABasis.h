@@ -87,10 +87,10 @@ inline std::vector<Basis> basis_pool = {
     // {"-(~x + 1)", 
     //     [](uint64_t x, uint64_t y) { return -(~x + 1); },
     //     [](IRBuilder<>& b, Value* x, Value* y) { return b.CreateNeg(b.CreateAdd(b.CreateNot(x), ConstantInt::get(x->getType(), 1))); }},
-    //{
-    //     "x<<1",   //這個基底容易overflow，導致數值錯誤，所以先拿掉
-    //     [](uint64_t x, uint64_t y) { return x << 1; },
-    //     [](IRBuilder<>& b, Value* x, Value* y) { return b.CreateShl(x, ConstantInt::get(x->getType(), 1)); }
+    // {
+    //     "x<<61",   //這個基底容易overflow，導致數值錯誤，所以先拿掉
+    //     [](uint64_t x, uint64_t y) { return x <<61; },
+    //     [](IRBuilder<>& b, Value* x, Value* y) { return b.CreateShl(x, ConstantInt::get(x->getType(), 61)); }
     // },
     
     //以下這些基底雖然也沒問題，但目前先不加入，保持基底池簡單一點，等之後需要更多變化再說
