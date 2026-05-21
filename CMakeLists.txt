@@ -14,10 +14,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 endif()
-
+include_directories(include) # 如果以後要整理header，可以移動到include/
+include_directories(lib)
+include_directories(lib/Utils)
 add_library(ObfPass MODULE 
-    Pass/Substitution.cpp
-    Pass/MBASolver.cpp
+    lib/PipelineRegistration.cpp  # 核心管理入口
+    lib/StringObfuscation.cpp
+    lib/Substitution.cpp
+    lib/Utils/MBASolver.cpp
+    # 未來只要在這裡橫向增加新的 Pass 檔案即可
 )
 
 # target_link_libraries(ObfPass LLVM)
