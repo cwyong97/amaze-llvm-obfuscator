@@ -2,7 +2,7 @@
 #include "Substitution.h"
 
 // LLVM 工具
-#include "llvm/IR/IRBuilder.h" // for IRBuilder
+#include "llvm/IR/IRBuilder.h"        // for IRBuilder
 #include "llvm/Support/raw_ostream.h" // for errs()
 #include "llvm/Support/CommandLine.h" // for command-line options
 
@@ -25,9 +25,9 @@ static cl::opt<int> SubRound(
     "sub-round", cl::init(1), cl::Hidden,
     cl::desc("The number of rounds of substitution to apply"));
 
-
-namespace {
-using RNG = std::mt19937;
+namespace
+{
+    using RNG = std::mt19937;
 // bool applyAddPolynomialObf(BinaryOperator *op, RNG &gen, std::uniform_int_distribution<> &dist) {
 //     IRBuilder<> builder(op);
 //     Value *op1 = op->getOperand(0);
@@ -52,7 +52,7 @@ using RNG = std::mt19937;
 //     // 公式: ZEP(x) = (x^2 + x) * 0x80000000 == 0
 //     // 我們可以隨機挑選 op1 作為種子變數 x
 //     // ------------------------------------------------------------
-//     Value* x = op1; 
+//     Value* x = op1;
 //     // x^2
 //     Value* x_sq = builder.CreateMul(x, x, "zep.x_sq");
 //     // x^2 + x
@@ -104,115 +104,229 @@ using RNG = std::mt19937;
 //     return true;
 // }
 
-bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist) {
-    bool modified = false;
-
-    // 優化：矩陣 A 是固定的，拉到迴圈外部只計算一次
-    std::vector<std::vector<int64_t>> A(4, std::vector<int64_t>(basis_pool.size()));
-    for (int i = 0; i < 4; ++i) {
-        int64_t vx = (i >> 1) & 1;
-        int64_t vy = i & 1;
-        for (size_t j = 0; j < basis_pool.size(); ++j) {
-            // 確保 basis_pool 的 op 回傳值也能正確轉型為 int64_t
-            A[i][j] = static_cast<int64_t>(basis_pool[j].op(vx, vy));
-        }
-    }
-    // int crazynumber = dist(gen); //測試用的隨機數，決定 substitution 的機率
-
-    for (auto &BB : F) {
-        for (auto &Inst : make_early_inc_range(BB)) {
-            auto *op = dyn_cast<BinaryOperator>(&Inst);
-            if (!op) {
-                continue;
-            }
-            // if (crazynumber % 2 == 0) { //測試降低 substitution 的機率，看看效果
-            //     continue; // 約束值
-            // }
-            int64_t table_00 = 0, table_01 = 0, table_10 = 0, table_11 = 0;
-            bool applied = true;
-            // int choice = dist(gen); //testing for other substitutions method
-            switch (op->getOpcode())
+    bool obfuscateConstants(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen)
+    {
+        bool modified = false;
+        for (auto &BB : F)
+        {
+            for (auto &Inst : make_early_inc_range(BB))
             {
+                auto *storeInst = dyn_cast<StoreInst>(&Inst);
+                if (!storeInst)
+                    continue;
 
-            case Instruction::Add:
-                table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 2; // 真值表對應 Add 的輸出1+1=2
-                // if (choice % 2 == 0) { //testing for other substitutions method
-                //     applyAddPolynomialObf(op, gen, dist);
-                // }
-                // applied = false;        
-                break;
-            case Instruction::Sub:
-                table_00 = 0; table_01 = -1; table_10 = 1; table_11 = 0; // 真值表對應 Sub 的輸出1-1=0
-                break;
-            case Instruction::And:
-                table_00 = 0; table_01 = 0; table_10 = 0; table_11 = 1; // 真值表對應 And 的輸出1&1=1
-                // applyAndObf(op, gen, dist); //testing for other substitutions method
-                // applied = false;
-                break;
-            case Instruction::Or:
-                table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 1; // 真值表對應 Or 的輸出1|1=1
-                break;
-            case Instruction::Xor:
-                table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 0; // 真值表對應 Xor 的輸出1^1=0
-                break;
-            default:
-                applied = false;
-                break;
-            }
-            if (!applied) {
-                continue;
-            }
-            std::vector<int64_t> b = {table_00, table_01, table_10, table_11};
+                Value *valOp = storeInst->getValueOperand();
+                if (auto *CI = dyn_cast<ConstantInt>(valOp))
+                {
+                    if (CI->getType()->isIntegerTy(1))
+                        continue;
 
-            // 隨機打亂 A 的 column 與 basis_pool 的對應關係，讓每次求解選到不同的 pivot
-            std::vector<size_t> perm(basis_pool.size());
-            std::iota(perm.begin(), perm.end(), 0);
-            std::shuffle(perm.begin(), perm.end(), gen);    //註解此行能停止隨機打亂
-            std::vector<std::vector<int64_t>> A_shuffled(4, std::vector<int64_t>(basis_pool.size()));
-            for (int row = 0; row < 4; ++row) {
-                for (size_t col = 0; col < basis_pool.size(); ++col) {
-                    A_shuffled[row][col] = A[row][perm[col]];
+                    int64_t constVal = CI->getSExtValue();
+                    std::vector<int64_t> b_const = {constVal, constVal, constVal, constVal};
+
+                    Value *dummyX = nullptr;
+                    for (Argument &Arg : F.args())
+                    {
+                        if (Arg.getType() == CI->getType())
+                        {
+                            dummyX = &Arg;
+                            break;
+                        }
+                    }
+                    if (!dummyX)
+                    {
+                        IRBuilder<> EntryBuilder(&*F.getEntryBlock().getFirstInsertionPt());
+                        Function *FrameAddrIntrinsic = Intrinsic::getDeclaration(F.getParent(), Intrinsic::frameaddress, {EntryBuilder.getPtrTy()});
+                        Value *FramePtr = EntryBuilder.CreateCall(FrameAddrIntrinsic, {EntryBuilder.getInt32(0)});
+                        Value *FrameInt = EntryBuilder.CreatePtrToInt(FramePtr, EntryBuilder.getInt64Ty());
+                        dummyX = EntryBuilder.CreateZExtOrTrunc(FrameInt, CI->getType());
+                    }
+                    Value *dummyY = dummyX;
+
+                    std::vector<size_t> perm(basis_pool.size());
+                    std::iota(perm.begin(), perm.end(), 0);
+                    std::shuffle(perm.begin(), perm.end(), gen);
+
+                    std::vector<std::vector<int64_t>> A_shuffled(4, std::vector<int64_t>(basis_pool.size()));
+                    for (int row = 0; row < 4; ++row)
+                        for (size_t col = 0; col < basis_pool.size(); ++col)
+                            A_shuffled[row][col] = A[row][perm[col]];
+
+                    std::vector<int64_t> x_c = MBASolver::solve(A_shuffled, b_const, gen);
+                    if (x_c.empty())
+                        continue;
+
+                    IRBuilder<> builder(storeInst);
+                    Value *obfuscatedConst = nullptr;
+                    for (size_t j = 0; j < x_c.size(); ++j)
+                    {
+                        if (x_c[j] == 0)
+                            continue;
+
+                        Value *basisExpr = basis_pool[perm[j]].genIR(builder, dummyX, dummyY);
+                        Value *coefVal = ConstantInt::get(CI->getType(), x_c[j]);
+                        Value *term = builder.CreateMul(coefVal, basisExpr);
+                        obfuscatedConst = obfuscatedConst ? builder.CreateAdd(obfuscatedConst, term) : term;
+                    }
+
+                    if (obfuscatedConst)
+                    {
+                        storeInst->setOperand(0, obfuscatedConst);
+                        modified = true;
+                    }
                 }
-            }
-
-            std::vector<int64_t> x = MBASolver::solve(A_shuffled, b, gen);
-            if (x.empty()) continue;
-            IRBuilder<> builder(op);
-            Value *valX = op->getOperand(0);
-            Value *valY = op->getOperand(1);
-            std::vector<size_t> selectedIndices;
-            Value *obfuscatedExpr = nullptr;
-            for (size_t j = 0; j < x.size(); ++j) {
-                if (x[j] == 0) {
-                    continue; // 如果算出的係數是 0，代表這個基底沒用到，直接跳過 (效能優化)
-                }
-                selectedIndices.push_back(j);
-            }
-            for (size_t j : selectedIndices) {
-                Value *basisExpr = basis_pool[perm[j]].genIR(builder, valX, valY);
-                Value *coef = ConstantInt::get(valX->getType(), x[j]);
-                Value *term = builder.CreateMul(coef, basisExpr, "term");
-                if (!obfuscatedExpr)
-                    obfuscatedExpr = term;
-                else
-                    obfuscatedExpr = builder.CreateAdd(obfuscatedExpr, term, "agg");
-            }
-            // 將原本的加法/減法指令，替換成等價的混淆多項式
-            if (obfuscatedExpr) {
-                op->replaceAllUsesWith(obfuscatedExpr);
-                op->eraseFromParent();
-                modified = true;
             }
         }
+        return modified;
     }
-    return modified;
-}
+
+    bool obfuscateBinaryOperators(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen, std::uniform_int_distribution<> &dist)
+    {
+        bool modified = false;
+        // int crazynumber = dist(gen); //測試用的隨機數，決定 substitution 的機率
+
+        for (auto &BB : F)
+        {
+            for (auto &Inst : make_early_inc_range(BB))
+            {
+                auto *op = dyn_cast<BinaryOperator>(&Inst);
+                if (!op)
+                {
+                    continue;
+                }
+                // if (crazynumber % 2 == 0) { //測試降低 substitution 的機率，看看效果
+                //     continue; // 約束值
+                // }
+                int64_t table_00 = 0, table_01 = 0, table_10 = 0, table_11 = 0;
+                bool applied = true;
+                // int choice = dist(gen); //testing for other substitutions method
+                switch (op->getOpcode())
+                {
+
+                case Instruction::Add:
+                    table_00 = 0;
+                    table_01 = 1;
+                    table_10 = 1;
+                    table_11 = 2; // 真值表對應 Add 的輸出1+1=2
+                    // if (choice % 2 == 0) { //testing for other substitutions method
+                    //     applyAddPolynomialObf(op, gen, dist);
+                    // }
+                    // applied = false;
+                    break;
+                case Instruction::Sub:
+                    table_00 = 0;
+                    table_01 = -1;
+                    table_10 = 1;
+                    table_11 = 0; // 真值表對應 Sub 的輸出1-1=0
+                    break;
+                case Instruction::And:
+                    table_00 = 0;
+                    table_01 = 0;
+                    table_10 = 0;
+                    table_11 = 1; // 真值表對應 And 的輸出1&1=1
+                    // applyAndObf(op, gen, dist); //testing for other substitutions method
+                    // applied = false;
+                    break;
+                case Instruction::Or:
+                    table_00 = 0;
+                    table_01 = 1;
+                    table_10 = 1;
+                    table_11 = 1; // 真值表對應 Or 的輸出1|1=1
+                    break;
+                case Instruction::Xor:
+                    table_00 = 0;
+                    table_01 = 1;
+                    table_10 = 1;
+                    table_11 = 0; // 真值表對應 Xor 的輸出1^1=0
+                    break;
+                default:
+                    applied = false;
+                    break;
+                }
+                if (!applied)
+                {
+                    continue;
+                }
+                std::vector<int64_t> b = {table_00, table_01, table_10, table_11};
+
+                // 隨機打亂 A 的 column 與 basis_pool 的對應關係，讓每次求解選到不同的 pivot
+                std::vector<size_t> perm(basis_pool.size());
+                std::iota(perm.begin(), perm.end(), 0);
+                std::shuffle(perm.begin(), perm.end(), gen); // 註解此行能停止隨機打亂
+                std::vector<std::vector<int64_t>> A_shuffled(4, std::vector<int64_t>(basis_pool.size()));
+                for (int row = 0; row < 4; ++row)
+                {
+                    for (size_t col = 0; col < basis_pool.size(); ++col)
+                    {
+                        A_shuffled[row][col] = A[row][perm[col]];
+                    }
+                }
+
+                std::vector<int64_t> x = MBASolver::solve(A_shuffled, b, gen);
+                if (x.empty())
+                    continue;
+                IRBuilder<> builder(op);
+                Value *valX = op->getOperand(0);
+                Value *valY = op->getOperand(1);
+                std::vector<size_t> selectedIndices;
+                Value *obfuscatedExpr = nullptr;
+                for (size_t j = 0; j < x.size(); ++j)
+                {
+                    if (x[j] == 0)
+                    {
+                        continue; // 如果算出的係數是 0，代表這個基底沒用到，直接跳過 (效能優化)
+                    }
+                    selectedIndices.push_back(j);
+                }
+                for (size_t j : selectedIndices)
+                {
+                    Value *basisExpr = basis_pool[perm[j]].genIR(builder, valX, valY);
+                    Value *coef = ConstantInt::get(valX->getType(), x[j]);
+                    Value *term = builder.CreateMul(coef, basisExpr, "term");
+                    if (!obfuscatedExpr)
+                        obfuscatedExpr = term;
+                    else
+                        obfuscatedExpr = builder.CreateAdd(obfuscatedExpr, term, "agg");
+                }
+                // 將原本的加法/減法指令，替換成等價的混淆多項式
+                if (obfuscatedExpr)
+                {
+                    op->replaceAllUsesWith(obfuscatedExpr);
+                    op->eraseFromParent();
+                    modified = true;
+                }
+            }
+        }
+        return modified;
+    }
+    bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist)
+    {
+        bool modified = false;
+
+        // 優化：矩陣 A 是固定的，拉到迴圈外部只計算一次
+        std::vector<std::vector<int64_t>> A(4, std::vector<int64_t>(basis_pool.size()));
+        for (int i = 0; i < 4; ++i)
+        {
+            int64_t vx = (i >> 1) & 1;
+            int64_t vy = i & 1;
+            for (size_t j = 0; j < basis_pool.size(); ++j)
+            {
+                // 確保 basis_pool 的 op 回傳值也能正確轉型為 int64_t
+                A[i][j] = static_cast<int64_t>(basis_pool[j].op(vx, vy));
+            }
+        }
+        // modified |= obfuscateConstants(F, A, gen);
+        // modified |= obfuscateBinaryOperators(F, A, gen, dist);
+        modified |= obfuscateConstants(F, A, gen);
+        return modified;
+    }
 } // end anonymous namespace
 
 // Substitution pass implementation
-PreservedAnalyses Substitution::run(Function &F, FunctionAnalysisManager &FAM) {
+PreservedAnalyses Substitution::run(Function &F, FunctionAnalysisManager &FAM)
+{
     bool modified = false;
-    int rounds = SubRound;  // substitution 的迴圈次數
+    int rounds = SubRound; // substitution 的迴圈次數
     // rounds = 1; //要測試的話先把這行打開
     // int current_chance = SubChance;  //還沒用到
     // errs() << "Current substitution chance is set to: " << current_chance << "%\n";
@@ -222,7 +336,8 @@ PreservedAnalyses Substitution::run(Function &F, FunctionAnalysisManager &FAM) {
     std::random_device rd;
     RNG gen(rd());
     std::uniform_int_distribution<> dist(0, 100);
-    for (int i = 0; i < rounds; ++i) {
+    for (int i = 0; i < rounds; ++i)
+    {
         modified |= applyOneRound(F, gen, dist);
     }
     return modified ? PreservedAnalyses::none() : PreservedAnalyses::all();

@@ -40,9 +40,11 @@ run_pass() {
   make -j"$(nproc)"
   popd > /dev/null
 
-  clang-15 -S -emit-llvm -O1 test/input.c -o test/input.ll
-  opt-15 -load-pass-plugin=build/libObfPass.so -O2 -obf-all -S test/input.ll -o test/output.ll
-  # opt-15 -load-pass-plugin=build/libObfPass.so -passes=stringobfuscation,substitution -S test/input.ll -o test/output.ll
+  clang-15 -S -emit-llvm -Wall -O1 test/input.c -o test/input.ll
+  # opt-15 -load-pass-plugin=build/libObfPass.so -O2 -obf-all -S test/input.ll -o test/output.ll
+  # opt-15 -load-pass-plugin=build/libObfPass.so -O3 -obf-string -S test/input.ll -o test/output.ll
+  opt-15 -load-pass-plugin=build/libObfPass.so -passes=stringobfuscation,substitution -S test/input.ll -o test/output.ll
+  # opt-15 -load-pass-plugin=build/libObfPass.so -passes=stringobfuscation -S test/input.ll -o test/output.ll
 }
 
 exec_pass() {
