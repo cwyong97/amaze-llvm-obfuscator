@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <numeric>
 #include <random>
+#include <unordered_map>
 using namespace llvm;
 
 static cl::opt<int> SubChance(
@@ -104,9 +105,10 @@ namespace
 //     return true;
 // }
 
-    bool obfuscateConstants(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen)
+    bool obfuscateConstants(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen, std::uniform_int_distribution<> &dist)
     {
         bool modified = false;
+        std::unordered_map<Type*, Value*> dummyCache;
         for (auto &BB : F)
         {
             for (auto &Inst : make_early_inc_range(BB))
@@ -119,6 +121,9 @@ namespace
                 if (auto *CI = dyn_cast<ConstantInt>(valOp))
                 {
                     if (CI->getType()->isIntegerTy(1))
+                        continue;
+
+                    if (dist(gen) > SubChance)
                         continue;
 
                     int64_t constVal = CI->getSExtValue();
@@ -135,11 +140,19 @@ namespace
                     }
                     if (!dummyX)
                     {
-                        IRBuilder<> EntryBuilder(&*F.getEntryBlock().getFirstInsertionPt());
-                        Function *FrameAddrIntrinsic = Intrinsic::getDeclaration(F.getParent(), Intrinsic::frameaddress, {EntryBuilder.getPtrTy()});
-                        Value *FramePtr = EntryBuilder.CreateCall(FrameAddrIntrinsic, {EntryBuilder.getInt32(0)});
-                        Value *FrameInt = EntryBuilder.CreatePtrToInt(FramePtr, EntryBuilder.getInt64Ty());
-                        dummyX = EntryBuilder.CreateZExtOrTrunc(FrameInt, CI->getType());
+                        if (dummyCache.count(CI->getType()))
+                        {
+                            dummyX = dummyCache[CI->getType()];
+                        }
+                        else
+                        {
+                            IRBuilder<> EntryBuilder(&*F.getEntryBlock().getFirstInsertionPt());
+                            Function *FrameAddrIntrinsic = Intrinsic::getDeclaration(F.getParent(), Intrinsic::frameaddress, {EntryBuilder.getPtrTy()});
+                            Value *FramePtr = EntryBuilder.CreateCall(FrameAddrIntrinsic, {EntryBuilder.getInt32(0)});
+                            Value *FrameInt = EntryBuilder.CreatePtrToInt(FramePtr, EntryBuilder.getInt64Ty());
+                            dummyX = EntryBuilder.CreateZExtOrTrunc(FrameInt, CI->getType());
+                            dummyCache[CI->getType()] = dummyX;
+                        }
                     }
                     Value *dummyY = dummyX;
 
@@ -183,70 +196,58 @@ namespace
     bool obfuscateBinaryOperators(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen, std::uniform_int_distribution<> &dist)
     {
         bool modified = false;
-        // int crazynumber = dist(gen); //測試用的隨機數，決定 substitution 的機率
-
         for (auto &BB : F)
         {
             for (auto &Inst : make_early_inc_range(BB))
             {
                 auto *op = dyn_cast<BinaryOperator>(&Inst);
                 if (!op)
-                {
                     continue;
-                }
-                // if (crazynumber % 2 == 0) { //測試降低 substitution 的機率，看看效果
-                //     continue; // 約束值
-                // }
+
+                if (dist(gen) > SubChance)
+                    continue;
+
                 int64_t table_00 = 0, table_01 = 0, table_10 = 0, table_11 = 0;
                 bool applied = true;
-                // int choice = dist(gen); //testing for other substitutions method
                 switch (op->getOpcode())
                 {
-
                 case Instruction::Add:
                     table_00 = 0;
                     table_01 = 1;
                     table_10 = 1;
-                    table_11 = 2; // 真值表對應 Add 的輸出1+1=2
-                    // if (choice % 2 == 0) { //testing for other substitutions method
-                    //     applyAddPolynomialObf(op, gen, dist);
-                    // }
-                    // applied = false;
+                    table_11 = 2;
                     break;
                 case Instruction::Sub:
                     table_00 = 0;
                     table_01 = -1;
                     table_10 = 1;
-                    table_11 = 0; // 真值表對應 Sub 的輸出1-1=0
+                    table_11 = 0;
                     break;
                 case Instruction::And:
                     table_00 = 0;
                     table_01 = 0;
                     table_10 = 0;
-                    table_11 = 1; // 真值表對應 And 的輸出1&1=1
-                    // applyAndObf(op, gen, dist); //testing for other substitutions method
-                    // applied = false;
+                    table_11 = 1;
                     break;
                 case Instruction::Or:
                     table_00 = 0;
                     table_01 = 1;
                     table_10 = 1;
-                    table_11 = 1; // 真值表對應 Or 的輸出1|1=1
+                    table_11 = 1;
                     break;
                 case Instruction::Xor:
                     table_00 = 0;
                     table_01 = 1;
                     table_10 = 1;
-                    table_11 = 0; // 真值表對應 Xor 的輸出1^1=0
+                    table_11 = 0;
                     break;
                 default:
                     applied = false;
                     break;
                 }
                 if (!applied)
-                {
                     continue;
-                }
+
                 std::vector<int64_t> b = {table_00, table_01, table_10, table_11};
 
                 // 隨機打亂 A 的 column 與 basis_pool 的對應關係，讓每次求解選到不同的 pivot
@@ -255,16 +256,13 @@ namespace
                 std::shuffle(perm.begin(), perm.end(), gen); // 註解此行能停止隨機打亂
                 std::vector<std::vector<int64_t>> A_shuffled(4, std::vector<int64_t>(basis_pool.size()));
                 for (int row = 0; row < 4; ++row)
-                {
                     for (size_t col = 0; col < basis_pool.size(); ++col)
-                    {
                         A_shuffled[row][col] = A[row][perm[col]];
-                    }
-                }
 
                 std::vector<int64_t> x = MBASolver::solve(A_shuffled, b, gen);
                 if (x.empty())
                     continue;
+
                 IRBuilder<> builder(op);
                 Value *valX = op->getOperand(0);
                 Value *valY = op->getOperand(1);
@@ -272,23 +270,20 @@ namespace
                 Value *obfuscatedExpr = nullptr;
                 for (size_t j = 0; j < x.size(); ++j)
                 {
-                    if (x[j] == 0)
-                    {
-                        continue; // 如果算出的係數是 0，代表這個基底沒用到，直接跳過 (效能優化)
-                    }
-                    selectedIndices.push_back(j);
+                    if (x[j] != 0)
+                        selectedIndices.push_back(j);
                 }
                 for (size_t j : selectedIndices)
                 {
                     Value *basisExpr = basis_pool[perm[j]].genIR(builder, valX, valY);
                     Value *coef = ConstantInt::get(valX->getType(), x[j]);
-                    Value *term = builder.CreateMul(coef, basisExpr, "term");
+                    Value *term = builder.CreateMul(coef, basisExpr);
                     if (!obfuscatedExpr)
                         obfuscatedExpr = term;
                     else
-                        obfuscatedExpr = builder.CreateAdd(obfuscatedExpr, term, "agg");
+                        obfuscatedExpr = builder.CreateAdd(obfuscatedExpr, term);
                 }
-                // 將原本的加法/減法指令，替換成等價的混淆多項式
+
                 if (obfuscatedExpr)
                 {
                     op->replaceAllUsesWith(obfuscatedExpr);
@@ -303,7 +298,6 @@ namespace
     {
         bool modified = false;
 
-        // 優化：矩陣 A 是固定的，拉到迴圈外部只計算一次
         std::vector<std::vector<int64_t>> A(4, std::vector<int64_t>(basis_pool.size()));
         for (int i = 0; i < 4; ++i)
         {
@@ -311,13 +305,11 @@ namespace
             int64_t vy = i & 1;
             for (size_t j = 0; j < basis_pool.size(); ++j)
             {
-                // 確保 basis_pool 的 op 回傳值也能正確轉型為 int64_t
                 A[i][j] = static_cast<int64_t>(basis_pool[j].op(vx, vy));
             }
         }
-        // modified |= obfuscateConstants(F, A, gen);
-        // modified |= obfuscateBinaryOperators(F, A, gen, dist);
-        modified |= obfuscateConstants(F, A, gen);
+        modified |= obfuscateBinaryOperators(F, A, gen, dist);
+        modified |= obfuscateConstants(F, A, gen, dist);
         return modified;
     }
 } // end anonymous namespace
