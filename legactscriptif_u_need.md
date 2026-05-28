@@ -1,4 +1,7 @@
-
+## Test runtime speed
+```bash=
+hyperfine -N --warmup 50 -M 2000 './baseline_bin' './output_bin' './opt_O3_output_bin' './opt_Os_output_bin'
+```
 ## 初始化
 只有Cmakelist與.so就先這樣跑來創造build與cmakefiles
 ```cmd=

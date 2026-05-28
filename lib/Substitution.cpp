@@ -7,15 +7,12 @@
 #include "llvm/Support/CommandLine.h" // for command-line options
 
 // 混淆演算法工具 (MBA)
-#include "MBABasis.h"
-#include "MBASolver.h"
+#include "MBAEngine.h"
 
 // C++ 標準庫
-#include <algorithm>
 #include <cstdint>
-#include <numeric>
 #include <random>
-#include <unordered_map>
+
 using namespace llvm;
 
 static cl::opt<int> SubChance(
@@ -26,172 +23,13 @@ static cl::opt<int> SubRound(
     "sub-round", cl::init(1), cl::Hidden,
     cl::desc("The number of rounds of substitution to apply"));
 
+static cl::opt<int> SubIntensity(
+    "sub-intensity", cl::init(100), cl::Hidden,
+    cl::desc("The intensity (0-100) of substitution MBA. 0 means maximum minimization."));
+
 namespace
 {
     using RNG = std::mt19937;
-// bool applyAddPolynomialObf(BinaryOperator *op, RNG &gen, std::uniform_int_distribution<> &dist) {
-//     IRBuilder<> builder(op);
-//     Value *op1 = op->getOperand(0);
-//     Value *op2 = op->getOperand(1);
-//     Type* ty = op->getType();
-//     Value *newAdd = nullptr;
-//     int choice = dist(gen);
-//     choice = 0;
-//     switch (choice) {
-//     case 0: {
-// // ------------------------------------------------------------
-//     // 第一步：將 A + B 轉換為線性 MBA
-//     // 公式: A + B = (A ^ B) + 2 * (A & B)
-//     // ------------------------------------------------------------
-//     Value* xorVal = builder.CreateXor(op1, op2, "mba.xor");
-//     Value* andVal = builder.CreateAnd(op1, op2, "mba.and");
-//     Value* shlVal = builder.CreateShl(andVal, ConstantInt::get(ty, 1), "mba.shl");
-//     Value* linearMBA = builder.CreateAdd(xorVal, shlVal, "mba.linear.add");
-
-//     // ------------------------------------------------------------
-//     // 第二步：構造零值多項式 ZEP (Zero-Evaluating Polynomial)
-//     // 公式: ZEP(x) = (x^2 + x) * 0x80000000 == 0
-//     // 我們可以隨機挑選 op1 作為種子變數 x
-//     // ------------------------------------------------------------
-//     Value* x = op1;
-//     // x^2
-//     Value* x_sq = builder.CreateMul(x, x, "zep.x_sq");
-//     // x^2 + x
-//     Value* x_sq_plus_x = builder.CreateAdd(x_sq, x, "zep.add");
-//     // (x^2 + x) * 0x80000000
-//     Value* zep = builder.CreateMul(x_sq_plus_x, ConstantInt::get(ty, 0x80000000), "zep.mul");
-
-//     // ------------------------------------------------------------
-//     // 第三步：構造複雜恆等式並注入乘法
-//     // 公式: 1_complex = ZEP + 1 == 1
-//     //       Result = linearMBA * 1_complex
-//     // ------------------------------------------------------------
-//     Value* complex_one = builder.CreateAdd(zep, ConstantInt::get(ty, 1), "complex.one");
-//     newAdd = builder.CreateMul(linearMBA, complex_one, "poly.mba.result");
-//     break;
-//     }
-//     default:
-//         // Fallback: leave instruction unchanged
-//         newAdd = op;
-//         return false;
-//     }
-//     op->replaceAllUsesWith(newAdd);
-//     op->eraseFromParent();
-//     return true;
-// }
-// bool applyAndObf(BinaryOperator *op, RNG &gen, std::uniform_int_distribution<> &dist) {
-//     IRBuilder<> builder(op);
-//     Value *a = op->getOperand(0);
-//     Value *b = op->getOperand(1);
-//     Value *newAnd = nullptr;
-
-//     int choice = dist(gen);
-//     choice = 0;
-//     switch (choice) {
-//     case 0: {
-//     // a & b -> (a ^ ~b) & a
-//         Value *notB = builder.CreateNot(b, "notB");
-//         Value *xorAB = builder.CreateXor(a, notB, "xorAB");
-//         newAnd = builder.CreateAnd(xorAB, a, "and0Substitute");
-//         break;
-//     }
-//     default:
-//         // Fallback: leave instruction unchanged
-//         newAnd = op;
-//         return false;
-//     }
-//     op->replaceAllUsesWith(newAnd);
-//     op->eraseFromParent();
-//     return true;
-// }
-
-    bool obfuscateConstants(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen, std::uniform_int_distribution<> &dist)
-    {
-        bool modified = false;
-        std::unordered_map<Type*, Value*> dummyCache;
-        for (auto &BB : F)
-        {
-            for (auto &Inst : make_early_inc_range(BB))
-            {
-                auto *storeInst = dyn_cast<StoreInst>(&Inst);
-                if (!storeInst)
-                    continue;
-
-                Value *valOp = storeInst->getValueOperand();
-                if (auto *CI = dyn_cast<ConstantInt>(valOp))
-                {
-                    if (CI->getType()->isIntegerTy(1))
-                        continue;
-
-                    if (dist(gen) > SubChance)
-                        continue;
-
-                    int64_t constVal = CI->getSExtValue();
-                    std::vector<int64_t> b_const = {constVal, constVal, constVal, constVal};
-
-                    Value *dummyX = nullptr;
-                    for (Argument &Arg : F.args())
-                    {
-                        if (Arg.getType() == CI->getType())
-                        {
-                            dummyX = &Arg;
-                            break;
-                        }
-                    }
-                    if (!dummyX)
-                    {
-                        if (dummyCache.count(CI->getType()))
-                        {
-                            dummyX = dummyCache[CI->getType()];
-                        }
-                        else
-                        {
-                            IRBuilder<> EntryBuilder(&*F.getEntryBlock().getFirstInsertionPt());
-                            Function *FrameAddrIntrinsic = Intrinsic::getDeclaration(F.getParent(), Intrinsic::frameaddress, {EntryBuilder.getPtrTy()});
-                            Value *FramePtr = EntryBuilder.CreateCall(FrameAddrIntrinsic, {EntryBuilder.getInt32(0)});
-                            Value *FrameInt = EntryBuilder.CreatePtrToInt(FramePtr, EntryBuilder.getInt64Ty());
-                            dummyX = EntryBuilder.CreateZExtOrTrunc(FrameInt, CI->getType());
-                            dummyCache[CI->getType()] = dummyX;
-                        }
-                    }
-                    Value *dummyY = dummyX;
-
-                    std::vector<size_t> perm(basis_pool.size());
-                    std::iota(perm.begin(), perm.end(), 0);
-                    std::shuffle(perm.begin(), perm.end(), gen);
-
-                    std::vector<std::vector<int64_t>> A_shuffled(4, std::vector<int64_t>(basis_pool.size()));
-                    for (int row = 0; row < 4; ++row)
-                        for (size_t col = 0; col < basis_pool.size(); ++col)
-                            A_shuffled[row][col] = A[row][perm[col]];
-
-                    std::vector<int64_t> x_c = MBASolver::solve(A_shuffled, b_const, gen);
-                    if (x_c.empty())
-                        continue;
-
-                    IRBuilder<> builder(storeInst);
-                    Value *obfuscatedConst = nullptr;
-                    for (size_t j = 0; j < x_c.size(); ++j)
-                    {
-                        if (x_c[j] == 0)
-                            continue;
-
-                        Value *basisExpr = basis_pool[perm[j]].genIR(builder, dummyX, dummyY);
-                        Value *coefVal = ConstantInt::get(CI->getType(), x_c[j]);
-                        Value *term = builder.CreateMul(coefVal, basisExpr);
-                        obfuscatedConst = obfuscatedConst ? builder.CreateAdd(obfuscatedConst, term) : term;
-                    }
-
-                    if (obfuscatedConst)
-                    {
-                        storeInst->setOperand(0, obfuscatedConst);
-                        modified = true;
-                    }
-                }
-            }
-        }
-        return modified;
-    }
 
     bool obfuscateBinaryOperators(Function &F, const std::vector<std::vector<int64_t>> &A, RNG &gen, std::uniform_int_distribution<> &dist)
     {
@@ -203,6 +41,11 @@ namespace
                 auto *op = dyn_cast<BinaryOperator>(&Inst);
                 if (!op)
                     continue;
+                
+                if (op->getMetadata("amaze.obfuscated")) {
+                    // errs() << "Skipping obfuscated instruction: " << *op << "\n";
+                    continue;
+                }
 
                 if (dist(gen) > SubChance)
                     continue;
@@ -212,34 +55,19 @@ namespace
                 switch (op->getOpcode())
                 {
                 case Instruction::Add:
-                    table_00 = 0;
-                    table_01 = 1;
-                    table_10 = 1;
-                    table_11 = 2;
+                    table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 2;
                     break;
                 case Instruction::Sub:
-                    table_00 = 0;
-                    table_01 = -1;
-                    table_10 = 1;
-                    table_11 = 0;
+                    table_00 = 0; table_01 = -1; table_10 = 1; table_11 = 0;
                     break;
                 case Instruction::And:
-                    table_00 = 0;
-                    table_01 = 0;
-                    table_10 = 0;
-                    table_11 = 1;
+                    table_00 = 0; table_01 = 0; table_10 = 0; table_11 = 1;
                     break;
                 case Instruction::Or:
-                    table_00 = 0;
-                    table_01 = 1;
-                    table_10 = 1;
-                    table_11 = 1;
+                    table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 1;
                     break;
                 case Instruction::Xor:
-                    table_00 = 0;
-                    table_01 = 1;
-                    table_10 = 1;
-                    table_11 = 0;
+                    table_00 = 0; table_01 = 1; table_10 = 1; table_11 = 0;
                     break;
                 default:
                     applied = false;
@@ -250,39 +78,15 @@ namespace
 
                 std::vector<int64_t> b = {table_00, table_01, table_10, table_11};
 
-                // 隨機打亂 A 的 column 與 basis_pool 的對應關係，讓每次求解選到不同的 pivot
-                std::vector<size_t> perm(basis_pool.size());
-                std::iota(perm.begin(), perm.end(), 0);
-                std::shuffle(perm.begin(), perm.end(), gen); // 註解此行能停止隨機打亂
-                std::vector<std::vector<int64_t>> A_shuffled(4, std::vector<int64_t>(basis_pool.size()));
-                for (int row = 0; row < 4; ++row)
-                    for (size_t col = 0; col < basis_pool.size(); ++col)
-                        A_shuffled[row][col] = A[row][perm[col]];
-
-                std::vector<int64_t> x = MBASolver::solve(A_shuffled, b, gen);
-                if (x.empty())
-                    continue;
-
                 IRBuilder<> builder(op);
                 Value *valX = op->getOperand(0);
                 Value *valY = op->getOperand(1);
-                std::vector<size_t> selectedIndices;
-                Value *obfuscatedExpr = nullptr;
-                for (size_t j = 0; j < x.size(); ++j)
-                {
-                    if (x[j] != 0)
-                        selectedIndices.push_back(j);
-                }
-                for (size_t j : selectedIndices)
-                {
-                    Value *basisExpr = basis_pool[perm[j]].genIR(builder, valX, valY);
-                    Value *coef = ConstantInt::get(valX->getType(), x[j]);
-                    Value *term = builder.CreateMul(coef, basisExpr);
-                    if (!obfuscatedExpr)
-                        obfuscatedExpr = term;
-                    else
-                        obfuscatedExpr = builder.CreateAdd(obfuscatedExpr, term);
-                }
+                if (!valX || !valY)
+                    continue;
+                if (!valX->getType()->isIntOrIntVectorTy() || !valY->getType()->isIntOrIntVectorTy())
+                    continue;
+
+                Value *obfuscatedExpr = MBAEngine::obfuscate(builder, valX, valY, b, A, gen, SubIntensity);
 
                 if (obfuscatedExpr)
                 {
@@ -294,22 +98,12 @@ namespace
         }
         return modified;
     }
+
     bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist)
     {
         bool modified = false;
-
-        std::vector<std::vector<int64_t>> A(4, std::vector<int64_t>(basis_pool.size()));
-        for (int i = 0; i < 4; ++i)
-        {
-            int64_t vx = (i >> 1) & 1;
-            int64_t vy = i & 1;
-            for (size_t j = 0; j < basis_pool.size(); ++j)
-            {
-                A[i][j] = static_cast<int64_t>(basis_pool[j].op(vx, vy));
-            }
-        }
+        auto A = MBAEngine::computeBasisMatrix();
         modified |= obfuscateBinaryOperators(F, A, gen, dist);
-        modified |= obfuscateConstants(F, A, gen, dist);
         return modified;
     }
 } // end anonymous namespace
@@ -317,6 +111,11 @@ namespace
 // Substitution pass implementation
 PreservedAnalyses Substitution::run(Function &F, FunctionAnalysisManager &FAM)
 {
+    if (F.isDeclaration())
+        return PreservedAnalyses::all();
+    if (F.getName().startswith("__amaze_"))
+        return PreservedAnalyses::all();
+
     bool modified = false;
     int rounds = SubRound; // substitution 的迴圈次數
     // rounds = 1; //要測試的話先把這行打開

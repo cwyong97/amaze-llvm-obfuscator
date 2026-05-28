@@ -6,3 +6,4 @@ build/
 *.i64
 *.yaml
 .DS_Store
+.vscode/

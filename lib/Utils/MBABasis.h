@@ -9,10 +9,20 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
 
 using llvm::IRBuilder;
 using llvm::Value;
 using llvm::ConstantInt;
+
+inline Value* getIntOrSplat(llvm::Type* Ty, uint64_t val) {
+    if (Ty->isVectorTy()) {
+        auto* vecTy = llvm::cast<llvm::VectorType>(Ty);
+        auto* scalar = llvm::ConstantInt::get(vecTy->getElementType(), val, true);
+        return llvm::ConstantVector::getSplat(vecTy->getElementCount(), scalar);
+    }
+    return llvm::ConstantInt::get(Ty, val, true);
+}
 
 struct Basis {
     std::string name;
@@ -23,7 +33,7 @@ struct Basis {
 inline std::vector<Basis> basis_pool = {
     {"0", 
         [](uint64_t x, uint64_t y) { return 0ULL; },
-        [](IRBuilder<>& b, Value* x, Value* y) { return ConstantInt::get(x->getType(), 0); }},
+        [](IRBuilder<>& b, Value* x, Value* y) { return getIntOrSplat(x->getType(), 0); }},
     
     {"(x & y)", 
         [](uint64_t x, uint64_t y) { return x & y; },
@@ -83,7 +93,7 @@ inline std::vector<Basis> basis_pool = {
     
     {"-1", 
         [](uint64_t x, uint64_t y) { return -1ULL; },
-        [](IRBuilder<>& b, Value* x, Value* y) { return ConstantInt::get(x->getType(), -1ULL); }},
+        [](IRBuilder<>& b, Value* x, Value* y) { return getIntOrSplat(x->getType(), -1ULL); }},
     // {"-(~x + 1)", 
     //     [](uint64_t x, uint64_t y) { return -(~x + 1); },
     //     [](IRBuilder<>& b, Value* x, Value* y) { return b.CreateNeg(b.CreateAdd(b.CreateNot(x), ConstantInt::get(x->getType(), 1))); }},

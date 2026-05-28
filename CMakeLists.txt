@@ -20,8 +20,12 @@ include_directories(lib/Utils)
 add_library(ObfPass MODULE 
     lib/PipelineRegistration.cpp  # 核心管理入口
     lib/StringObfuscation.cpp
+    lib/ConstantObfuscation.cpp
     lib/Substitution.cpp
+    lib/Utils/MBAEngine.cpp
+    lib/Utils/MBABuilder.cpp
     lib/Utils/MBASolver.cpp
+    lib/Utils/ConstantAnalyzer.cpp
     # 未來只要在這裡橫向增加新的 Pass 檔案即可
 )
 

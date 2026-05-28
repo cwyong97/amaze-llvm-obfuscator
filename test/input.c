@@ -1,80 +1,113 @@
 #include <stdio.h>
 #include <string.h>
-#include <limits.h>
 #include <stdint.h>
 
-void test_string_obfuscation() {
-    printf("=== Test String Obfuscation Boundaries ===\n");
-
-    // 1. Length exactly multiple of 8 (8, 16, 24, 32 bytes)
-    volatile char s8[] = "12345678";
-    volatile char s16[] = "1234567812345678";
-    volatile char s24[] = "123456781234567812345678";
-    volatile char s32[] = "12345678123456781234567812345678";
-
-    printf("s8: [%s] (len: %zu)\n", s8, strlen((char*)s8));
-    printf("s16: [%s] (len: %zu)\n", s16, strlen((char*)s16));
-    printf("s24: [%s] (len: %zu)\n", s24, strlen((char*)s24));
-    printf("s32: [%s] (len: %zu)\n", s32, strlen((char*)s32));
-
-    // 2. Empty string
-    volatile char empty[] = "";
-    printf("empty: [%s] (len: %zu)\n", empty, strlen((char*)empty));
-
-    // 3. Special characters & escaping
-    volatile char special[] = "Hello\n\tWorld!\\";
-    printf("special: [%s]\n", special);
-
-    // 4. Deduplication: Reference the same string multiple times
-    printf("Duplicate check 1: %s\n", "DeduplicateMe");
-    printf("Duplicate check 2: %s\n", "DeduplicateMe");
-    printf("Duplicate check 3: %s\n", "DeduplicateMe");
+// 1. 測試 Switch-Case 結構安全過濾器 (驗證 SwitchInst 常數防禦是否 100% 成功阻止 Crash)
+void test_switch_case(int value) {
+    printf("=== Test Switch-Case Safety Filter ===\n");
+    switch (value) {
+        case 12345:
+            printf("Matched sensitive magic case 12345!\n");
+            break;
+        case 67890:
+            printf("Matched sensitive magic case 67890!\n");
+            break;
+        default:
+            printf("Fallback default case: %d\n", value);
+            break;
+    }
 }
 
-void test_substitution() {
-    printf("=== Test Substitution / Binary Operators & Constant Obfuscation ===\n");
+// 2. 測試局部變數堆疊配置 (驗證 mem2reg 在 Entry Block 優化 Alloca 的保留度)
+int test_local_alloca_preservation(int val) {
+    printf("=== Test Local Alloca Preservation ===\n");
+    volatile int x = val + 10;
+    volatile int y = val * 5;
+    volatile int array[4] = {1, 2, 3, 4};
+    return x + y + array[2];
+}
 
-    // 1. Large constant integers (64-bit boundaries)
-    volatile int64_t large_pos = 922337203685477580LL; // safe under 64-bit limit
-    volatile int64_t large_neg = -922337203685477580LL;
-    volatile int64_t zero = 0;
-    volatile int64_t neg_one = -1;
+// 3. 測試字串解密邊界與去重 (String Obfuscation Boundaries & Deduplication)
+void test_string_obfuscation() {
+    printf("=== Test String Decryption ===\n");
+    volatile char short_str[] = "Short";
+    volatile char exact_8[] = "12345678";
+    volatile char empty_str[] = "";
+    volatile char escape_chars[] = "Tab:\t, Newline:\n, Backslash:\\";
 
-    printf("large_pos: %lld\n", (long long)large_pos);
-    printf("large_neg: %lld\n", (long long)large_neg);
-    printf("zero: %lld\n", (long long)zero);
-    printf("neg_one: %lld\n", (long long)neg_one);
+    printf("short: [%s]\n", short_str);
+    printf("exact_8: [%s]\n", exact_8);
+    printf("empty: [%s]\n", empty_str);
+    printf("escaped: [%s]\n", escape_chars);
 
-    // 2. Constants of different types (i8, i16, i32, i64)
-    volatile int8_t  c_i8  = 120;
-    volatile int16_t c_i16 = 30000;
-    volatile int32_t c_i32 = 2000000000;
-    volatile int64_t c_i64 = 800000000000LL;
+    // 去重複化測試 (多處引用同一個字串常數)
+    printf("Deduplication test 1: %s\n", "DeduplicateMe");
+    printf("Deduplication test 2: %s\n", "DeduplicateMe");
+}
 
-    printf("c_i8: %d, c_i16: %d, c_i32: %d, c_i64: %lld\n", c_i8, c_i16, c_i32, (long long)c_i64);
-
-    // 3. Binary operators boundary testing
+// 4. 測試算術代換與高頻常數標記混淆 (Substitution & Constant Obfuscation)
+void test_arithmetic_and_constants() {
+    printf("=== Test MBA Substitution & Constant Obfuscation ===\n");
     volatile int a = 100;
     volatile int b = 50;
 
-    printf("Add (100 + 50): %d\n", a + b);
-    printf("Sub (100 - 50): %d\n", a - b);
-    printf("And (100 & 50): %d\n", a & b);
-    printf("Or  (100 | 50): %d\n", a | b);
-    printf("Xor (100 ^ 50): %d\n", a ^ b);
+    // 這些算術指令將被替換為隨機線性 MBA 表達式
+    int add_res = a + b;
+    int sub_res = a - b;
+    int and_res = a & b;
+    int or_res  = a | b;
+    int xor_res = a ^ b;
 
-    // 4. Binary operations with boundaries (0, -1)
-    printf("Add zero: %d\n", a + 0);
-    printf("Sub neg_one: %d\n", a - (-1));
-    printf("And zero: %d\n", a & 0);
-    printf("And all_ones: %d\n", a & -1);
-    printf("Or zero: %d\n", a | 0);
-    printf("Xor zero: %d\n", a ^ 0);
-    printf("Xor all_ones: %d\n", a ^ -1);
+    printf("Add: %d, Sub: %d, And: %d, Or: %d, Xor: %d\n", add_res, sub_res, and_res, or_res, xor_res);
+
+    // 定向常數標籤混淆 (高頻出現的敏感魔術數)
+    volatile int64_t key1 = 0x123456789ABCDEF0LL;
+    volatile int64_t key2 = 0x123456789ABCDEF0LL;
+    printf("Key 1: %lld, Key 2: %lld\n", (long long)key1, (long long)key2);
+}
+
+// 5. 測試複雜控制流、結構體與有號/無號整數邊界 (Nested Loops, Structs & Signed/Unsigned Boundaries)
+struct Point {
+    int32_t x;
+    int32_t y;
+};
+
+void test_complex_loop_and_signedness() {
+    printf("=== Test Complex Control Flow & Boundaries ===\n");
+
+    // 測試有號與無號極限常數 (防範 sign-extension 異常)
+    volatile int32_t max_signed = 2147483647; // INT_MAX
+    volatile uint32_t max_unsigned = 4294967295U; // UINT_MAX
+    
+    int64_t sum_bounds = (int64_t)max_signed + (int64_t)max_unsigned;
+    printf("Signed/Unsigned Bounds Sum: %lld\n", (long long)sum_bounds);
+
+    // 複雜控制流：雙重巢狀迴圈與雜湊值運算
+    volatile uint32_t hash = 0x811C9DC5;
+    for (int i = 0; i < 5; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            hash ^= (uint32_t)(i * 3 + j);
+            hash *= 16777619; // FNV-1a 32-bit prime
+        }
+    }
+    printf("FNV hash result: 0x%X\n", hash);
+
+    // 結構體堆疊操作
+    struct Point p = {1000, 2000};
+    volatile int res = p.x + p.y;
+    printf("Struct Point result: %d\n", res);
 }
 
 int main() {
+    test_switch_case(12345);
+    test_switch_case(999);
+    
+    int alloca_res = test_local_alloca_preservation(10);
+    printf("Alloca preservation result: %d\n", alloca_res);
+
     test_string_obfuscation();
-    test_substitution();
+    test_arithmetic_and_constants();
+    test_complex_loop_and_signedness();
+
     return 0;
 }
