@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
+#include "llvm/Support/raw_ostream.h"
 
 namespace MBASolver {
 
@@ -20,7 +21,8 @@ uint64_t modInverse_odd(uint64_t c) {
 std::vector<int64_t> solve(
     const std::vector<std::vector<int64_t>>& A, 
     const std::vector<int64_t>& b, 
-    std::mt19937& gen) 
+    std::mt19937& gen,
+    int intensity) 
 {
     if (A.empty() || A[0].empty()) return {};
     
@@ -77,8 +79,8 @@ std::vector<int64_t> solve(
         do {
             loop_count++;
             if (loop_count > 100) {
-                std::cout << "Infinite loop detected at i=" << i << "! Breaking out.\n";
-                break;
+                llvm::errs() << "Infinite loop detected at i=" << i << "! Aborting solve.\n";
+                return {};  // 不完整的 SNF 分解無法產生有效解，直接返回空向量
             }
             changed = false;
             
@@ -162,16 +164,13 @@ std::vector<int64_t> solve(
         x_prime[i] = static_cast<int64_t>(b_new * c_inv);
     }
     
-    // 自由變數 (index std::min(rows, cols) to cols-1)
     std::uniform_int_distribution<int64_t> free_var_dist(-8480526731661512249LL, 8480526731661512249LL);
-    int percentage = rand();
+    std::uniform_int_distribution<int> percent_dist(0, 99);
     for (int i = std::min(rows, cols); i < cols; ++i) {
-        x_prime[i] = free_var_dist(gen);
-        // if (percentage%100 < 0) {
-        //     x_prime[i] = 0;
-        // } else {
-        //     x_prime[i] = free_var_dist(gen);
-        // }
+        if (percent_dist(gen) >= intensity)
+            x_prime[i] = 0;
+        else
+            x_prime[i] = free_var_dist(gen);
     }
     
     // 轉回真實的解 x = T * x'
@@ -179,9 +178,6 @@ std::vector<int64_t> solve(
     for (int i = 0; i < cols; ++i) {
         for (int j = 0; j < cols; ++j) {
             x[i] = static_cast<int64_t>(static_cast<uint64_t>(x[i]) + static_cast<uint64_t>(T[i][j]) * static_cast<uint64_t>(x_prime[j]));
-            if (percentage%100 < 30) { //這裡可以調整生成比例
-                x[i] = 0;
-            }
         }
     }
     

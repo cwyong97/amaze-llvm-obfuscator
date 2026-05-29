@@ -11,6 +11,7 @@ namespace MBASolver {
     std::vector<int64_t> solve(
         const std::vector<std::vector<int64_t>>& A, 
         const std::vector<int64_t>& b, 
-        std::mt19937& gen
+        std::mt19937& gen,
+        int intensity = 50
     );
 }
