@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 project(ObfLLVMPass)
 
-find_package(LLVM REQUIRED CONFIG)
+# LLVM 15 是目前的目標版本，請根據實際安裝的 LLVM 版本調整
+find_package(LLVM 15 REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
@@ -22,6 +23,8 @@ add_library(ObfPass MODULE
     lib/StringObfuscation.cpp
     lib/ConstantObfuscation.cpp
     lib/Substitution.cpp
+    lib/SplitBasicBlocks.cpp      # [+] 加入你的碎紙機 Pass
+    lib/BogusControlFlow.cpp      # [+] 加入你的迷宮 Pass
     lib/Utils/MBAEngine.cpp
     lib/Utils/MBABuilder.cpp
     lib/Utils/MBASolver.cpp
