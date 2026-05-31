@@ -21,7 +21,8 @@ EOF
 build_project() {
   mkdir -p build
   pushd build > /dev/null
-  cmake ..
+  # 強制指定 LLVM 15 的 CMake 設定檔路徑
+  cmake -DLLVM_DIR=/usr/lib/llvm-15/cmake ..
   popd > /dev/null
 }
 clean_build() {
@@ -46,7 +47,7 @@ run_pass() {
   clang-15 -S -emit-llvm -Wall -O1 test/input.c -o test/input.ll
   
   # 1. 產生經過 AmaZe Pass 混淆後的 LLVM IR
-  opt-15 -load-pass-plugin=build/libObfPass.so -O3 -obf-all -S test/input.ll -o test/output.ll
+  opt-15 -load-pass-plugin=build/libObfPass.so -passes="stringobfuscation,function(split,bcf,substitution)" -S test/input.ll -o test/output.ll
   
   # 2. 針對混淆後的 output.ll 再進行標準的 opt-15 -O3 優化，驗證抗摺疊與編譯正確性
   opt-15 -O3 -S test/output.ll -o test/opt_output.ll
@@ -54,7 +55,9 @@ run_pass() {
 
 exec_pass() {
   run_pass
-  lli-15 test/output.ll
+  mkdir -p test/bin
+  clang-15 test/output.ll -o test/bin/exec_output
+  ./test/bin/exec_output
 }
 
 exec_elf() {

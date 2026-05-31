@@ -1,113 +1,151 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
+#include <ctype.h>
 
-// 1. 測試 Switch-Case 結構安全過濾器 (驗證 SwitchInst 常數防禦是否 100% 成功阻止 Crash)
-void test_switch_case(int value) {
-    printf("=== Test Switch-Case Safety Filter ===\n");
-    switch (value) {
-        case 12345:
-            printf("Matched sensitive magic case 12345!\n");
-            break;
-        case 67890:
-            printf("Matched sensitive magic case 67890!\n");
-            break;
-        default:
-            printf("Fallback default case: %d\n", value);
-            break;
+// Global variable to prevent compiler from optimizing out dummy calculations
+int volatile_dummy = 0;
+
+// Function prototypes for recursive descent parser
+int parse_expression(const char **str);
+int parse_term(const char **str);
+int parse_factor(const char **str);
+
+// Helper function to skip whitespace characters
+void skip_whitespace(const char **str) {
+    while (isspace(**str)) {
+        (*str)++;
     }
 }
 
-// 2. 測試局部變數堆疊配置 (驗證 mem2reg 在 Entry Block 優化 Alloca 的保留度)
-int test_local_alloca_preservation(int val) {
-    printf("=== Test Local Alloca Preservation ===\n");
-    volatile int x = val + 10;
-    volatile int y = val * 5;
-    volatile int array[4] = {1, 2, 3, 4};
-    return x + y + array[2];
-}
+// ---------------------------------------------------------
+// Parse factors: Numbers or parentheses (e.g., "42" or "(3+5)")
+// ---------------------------------------------------------
+__attribute__((noinline))
+int parse_factor(const char **str) {
+    skip_whitespace(str);
+    int result = 0;
 
-// 3. 測試字串解密邊界與去重 (String Obfuscation Boundaries & Deduplication)
-void test_string_obfuscation() {
-    printf("=== Test String Decryption ===\n");
-    volatile char short_str[] = "Short";
-    volatile char exact_8[] = "12345678";
-    volatile char empty_str[] = "";
-    volatile char escape_chars[] = "Tab:\t, Newline:\n, Backslash:\\";
-
-    printf("short: [%s]\n", short_str);
-    printf("exact_8: [%s]\n", exact_8);
-    printf("empty: [%s]\n", empty_str);
-    printf("escaped: [%s]\n", escape_chars);
-
-    // 去重複化測試 (多處引用同一個字串常數)
-    printf("Deduplication test 1: %s\n", "DeduplicateMe");
-    printf("Deduplication test 2: %s\n", "DeduplicateMe");
-}
-
-// 4. 測試算術代換與高頻常數標記混淆 (Substitution & Constant Obfuscation)
-void test_arithmetic_and_constants() {
-    printf("=== Test MBA Substitution & Constant Obfuscation ===\n");
-    volatile int a = 100;
-    volatile int b = 50;
-
-    // 這些算術指令將被替換為隨機線性 MBA 表達式
-    int add_res = a + b;
-    int sub_res = a - b;
-    int and_res = a & b;
-    int or_res  = a | b;
-    int xor_res = a ^ b;
-
-    printf("Add: %d, Sub: %d, And: %d, Or: %d, Xor: %d\n", add_res, sub_res, and_res, or_res, xor_res);
-
-    // 定向常數標籤混淆 (高頻出現的敏感魔術數)
-    volatile int64_t key1 = 0x123456789ABCDEF0LL;
-    volatile int64_t key2 = 0x123456789ABCDEF0LL;
-    printf("Key 1: %lld, Key 2: %lld\n", (long long)key1, (long long)key2);
-}
-
-// 5. 測試複雜控制流、結構體與有號/無號整數邊界 (Nested Loops, Structs & Signed/Unsigned Boundaries)
-struct Point {
-    int32_t x;
-    int32_t y;
-};
-
-void test_complex_loop_and_signedness() {
-    printf("=== Test Complex Control Flow & Boundaries ===\n");
-
-    // 測試有號與無號極限常數 (防範 sign-extension 異常)
-    volatile int32_t max_signed = 2147483647; // INT_MAX
-    volatile uint32_t max_unsigned = 4294967295U; // UINT_MAX
-    
-    int64_t sum_bounds = (int64_t)max_signed + (int64_t)max_unsigned;
-    printf("Signed/Unsigned Bounds Sum: %lld\n", (long long)sum_bounds);
-
-    // 複雜控制流：雙重巢狀迴圈與雜湊值運算
-    volatile uint32_t hash = 0x811C9DC5;
-    for (int i = 0; i < 5; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            hash ^= (uint32_t)(i * 3 + j);
-            hash *= 16777619; // FNV-1a 32-bit prime
+    if (**str == '(') {
+        (*str)++; // Consume '('
+        result = parse_expression(str);
+        skip_whitespace(str);
+        if (**str == ')') {
+            (*str)++; // Consume ')'
+        }
+    } else {
+        // Parse raw integer
+        while (isdigit(**str)) {
+            result = result * 10 + (**str - '0');
+            (*str)++;
         }
     }
-    printf("FNV hash result: 0x%X\n", hash);
 
-    // 結構體堆疊操作
-    struct Point p = {1000, 2000};
-    volatile int res = p.x + p.y;
-    printf("Struct Point result: %d\n", res);
+    // [Obfuscation Fuel] Dummy bitwise and arithmetic operations for Substitution & Split
+    int dummy_calc = result ^ 0xAA;
+    dummy_calc = (dummy_calc << 1) - dummy_calc;
+    result = result + volatile_dummy; // Prevent optimization
+
+    return result;
 }
 
-int main() {
-    test_switch_case(12345);
-    test_switch_case(999);
+// ---------------------------------------------------------
+// Parse terms: Multiplication and Division (e.g., "3 * 5")
+// ---------------------------------------------------------
+__attribute__((noinline))
+int parse_term(const char **str) {
+    int result = parse_factor(str);
+    skip_whitespace(str);
+
+    while (**str == '*' || **str == '/' || **str == '%') {
+        char op = **str;
+        (*str)++; // Consume operator
+        
+        int next_factor = parse_factor(str);
+        
+        if (op == '*') {
+            result *= next_factor;
+        } else if (op == '/') {
+            if (next_factor != 0) {
+                result /= next_factor;
+            } else {
+                // [Obfuscation Fuel] Hardcoded string for String Obfuscation pass
+                puts("[AmazeLLVM-Error] Division by zero detected! Returning 0.");
+                result = 0;
+            }
+        } else if (op == '%') {
+            if (next_factor != 0) {
+                result %= next_factor;
+            } else {
+                result = 0;
+            }
+        }
+        skip_whitespace(str);
+    }
     
-    int alloca_res = test_local_alloca_preservation(10);
-    printf("Alloca preservation result: %d\n", alloca_res);
+    // [Obfuscation Fuel] Force a straight-line computation for SplitBasicBlocks
+    int temp = result + 5;
+    temp = temp - 5;
+    return temp;
+}
 
-    test_string_obfuscation();
-    test_arithmetic_and_constants();
-    test_complex_loop_and_signedness();
+// ---------------------------------------------------------
+// Parse expressions: Addition and Subtraction (e.g., "term + term")
+// ---------------------------------------------------------
+__attribute__((noinline))
+int parse_expression(const char **str) {
+    int result = parse_term(str);
+    skip_whitespace(str);
 
+    while (**str == '+' || **str == '-') {
+        char op = **str;
+        (*str)++; // Consume operator
+        
+        int next_term = parse_term(str);
+        
+        if (op == '+') {
+            result += next_term;
+        } else if (op == '-') {
+            result -= next_term;
+        }
+        skip_whitespace(str);
+    }
+    return result;
+}
+
+// ---------------------------------------------------------
+// Main application entry point
+// ---------------------------------------------------------
+int main(int argc, char *argv[]) {
+    // Strings for testing String Obfuscation
+    const char *welcome_msg = "=== AmazeLLVM Interactive Calculator Engine ===";
+    const char *prompt_msg = "Enter a math expression (e.g., 3 * 5 + 8 / 2): ";
+    
+    // 新的口號字串！
+    const char *secret_key = "AmazeLLVM is so wonderful !!!";
+    
+    puts(welcome_msg);
+    
+    // 將口號字串正常印出，防止被 LLVM 的 Dead Code Elimination 拔掉
+    printf("[Info] Engine Token: %s\n", secret_key);
+    printf("%s", prompt_msg);
+    
+    char buffer[256];
+    
+    // Read user input dynamically at runtime (defeats static analysis & constant folding)
+    if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+        // Remove trailing newline character
+        buffer[strcspn(buffer, "\n")] = 0;
+        
+        const char *ptr = buffer;
+        
+        // Start recursive descent parsing
+        int final_result = parse_expression(&ptr);
+        
+        printf("[=] Calculation Success! Output Result: %d\n", final_result);
+    } else {
+        puts("[AmazeLLVM-Error] Failed to read input from stdin.");
+    }
+    
     return 0;
 }

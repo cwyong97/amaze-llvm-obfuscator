@@ -6,6 +6,8 @@
 #include "StringObfuscation.h" 
 #include "ConstantObfuscation.h"
 #include "Substitution.h"
+#include "SplitBasicBlocks.h"   
+#include "BogusControlFlow.h"   
 #include "Utils/ConstantAnalyzer.h"
 
 using namespace llvm;
@@ -29,8 +31,21 @@ static cl::opt<bool> EnableSubstitution(
 
 static cl::opt<bool> EnableConstantTagging(
     "obf-tag", cl::init(false), cl::Hidden,
-    cl::desc("Enable Constant Tagging (Scans and tags duplicate constants for targeted obfuscation)"));
+    cl::desc("Enable Constant Tagging"));
 
+// [+] 新增：為你的 Split 加上獨立開關
+static cl::opt<bool> EnableSplit(
+    "obf-split", cl::init(false), cl::Hidden,
+    cl::desc("Enable Basic Block Splitting"));
+
+// [+] 新增：為你的 BCF 加上獨立開關
+static cl::opt<bool> EnableBCF(
+    "obf-bcf", cl::init(false), cl::Hidden,
+    cl::desc("Enable Bogus Control Flow"));
+
+// ============================================================================
+// 外掛註冊進入點
+// ============================================================================
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
     return {
@@ -39,7 +54,8 @@ llvmGetPassPluginInfo() {
         LLVM_VERSION_STRING,
         [](PassBuilder &PB) {
             
-            // 1. 註冊手動管線解析名稱（-passes=...）
+            // 1. 註冊手動管線解析名稱（對應 -passes="..."）
+            // 這裡註冊的是 FunctionPassManager (因為你的 Split 和 BCF 都是 FunctionPass)
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, FunctionPassManager &FPM,
                    ArrayRef<PassBuilder::PipelineElement>) {
@@ -51,9 +67,18 @@ llvmGetPassPluginInfo() {
                         FPM.addPass(Substitution());
                         return true;
                     }
+                    if (Name.equals("split")) { 
+                        FPM.addPass(SplitBasicBlocks());
+                        return true;
+                    }
+                    if (Name.equals("bcf")) { 
+                        FPM.addPass(BogusControlFlow());
+                        return true;
+                    }
                     return false;
                 });
                 
+            // 這裡註冊的是 ModulePassManager
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &MPM,
                    ArrayRef<PassBuilder::PipelineElement>) {
@@ -68,7 +93,7 @@ llvmGetPassPluginInfo() {
                     return false;
                 });
                 
-            // 2. 註冊自動擴充點
+            // 2. 註冊自動擴充點 (對應 -O1, -O2, -O3, -obf-all 等全自動管線)
             PB.registerOptimizerLastEPCallback(
                 [](ModulePassManager &MPM, OptimizationLevel Level) {
                     if (EnableAllObf || EnableStringObf) {
@@ -82,6 +107,12 @@ llvmGetPassPluginInfo() {
                     }
                     if (EnableAllObf || EnableSubstitution) {
                         MPM.addPass(createModuleToFunctionPassAdaptor(Substitution()));
+                    }
+                    if (EnableAllObf || EnableSplit) {
+                        MPM.addPass(createModuleToFunctionPassAdaptor(SplitBasicBlocks()));
+                    }
+                    if (EnableAllObf || EnableBCF) {
+                        MPM.addPass(createModuleToFunctionPassAdaptor(BogusControlFlow()));
                     }
                 });
         }
