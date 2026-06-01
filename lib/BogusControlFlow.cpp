@@ -125,16 +125,24 @@ private:
         // 🚨 【核心改進：補上這行大絕招】
         // 在讀取之前，先用程式碼去「Store（寫入）」一個隨機數字到這個全域變數中
         // 只要 IDA 靜態掃描發現這個檔案「有 Store 行為」，它就再也無法武斷認定 seedVar 永遠為 0！
-        builder.CreateStore(builder.getInt32(dis(gen)), seedVar);
+        // 我們將其設定為 volatile，以完全防止 LLVM 優化器消除該寫入或進行跨基本塊的常數傳播
+        StoreInst *storeInst = builder.CreateStore(builder.getInt32(dis(gen)), seedVar);
+        storeInst->setVolatile(true);
+        storeInst->setMetadata("amaze.target.constant", MDNode::get(M->getContext(), {}));
 
-        // 建立讀取指令 (Load)：從全域變數中把值撈上來
-        Value *seedLoad = builder.CreateLoad(builder.getInt32Ty(), seedVar, "seed_load");
+        // 建立讀取指令 (Load)：從全域變數中把值撈上來，並設定為 volatile 徹底封鎖編譯器的優化與折疊
+        LoadInst *loadInst = builder.CreateLoad(builder.getInt32Ty(), seedVar, "seed_load");
+        loadInst->setVolatile(true);
+        Value *seedLoad = loadInst;
         
         // 【數學恆等式升級】：因為變數會變，我們不用 (seed_load == 0) 了，因為那樣假分支真的會被執行到！
         // 我們改用絕對安全的數學特性： (seed_load * seed_load) >= 0
         // 有號整數的平方在不考慮極端溢位下（且我們只生成 1~1000）絕對 >= 0，動態執行時百分之百恆為 True！
         Value *squared = builder.CreateMul(seedLoad, seedLoad, "opaque_mul");
         Value *cond = builder.CreateICmpSGE(squared, builder.getInt32(0), "opaque_cond");
+        if (auto *condInst = dyn_cast<Instruction>(cond)) {
+            condInst->setMetadata("amaze.target.constant", MDNode::get(M->getContext(), {}));
+        }
         
         return cond;
     }

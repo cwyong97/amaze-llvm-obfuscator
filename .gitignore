@@ -7,3 +7,10 @@ build/
 *.yaml
 .DS_Store
 .vscode/
+
+# AmaZe testing temp folders
+test/bin/
+real_world_tests/tiny-AES-c/
+real_world_tests/bin_aes_temp/
+real_world_tests/sqlite-amalgamation/
+real_world_tests/bin_sqlite_temp/
