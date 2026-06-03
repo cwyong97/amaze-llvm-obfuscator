@@ -157,8 +157,11 @@ def main():
 
             # C. Verify correctness
             stdout_obf, _ = run_cmd([obf_bin])
-            # If it runs to completion (exit code 0), correctness passes
-            correct_ok = True
+            if stdout_obf.strip() == stdout.strip():
+                correct_ok = True
+                benchmark_cmds.append((name, obf_bin))
+            else:
+                print(f"{RED}[Warning] {name} output mismatch!{RESET}")
 
             # D. Compile optimized obfuscated binary (Obf + standard O3)
             run_cmd(["opt-15", "-O3", "-S", aes_obf_ll, "-o", aes_opt_obf_ll], cwd=AES_DIR)
@@ -166,16 +169,18 @@ def main():
             opt_elf_size = os.path.getsize(opt_obf_bin)
 
             stdout_opt, _ = run_cmd([opt_obf_bin])
-            opt_correct_ok = True
-
-            if correct_ok:
-                benchmark_cmds.append((name, obf_bin))
-            if opt_correct_ok:
+            if stdout_opt.strip() == stdout.strip():
+                opt_correct_ok = True
                 benchmark_cmds.append((f"{name} (+O3)", opt_obf_bin))
+            else:
+                print(f"{RED}[Warning] {name} (+O3) output mismatch!{RESET}")
 
         except Exception as e:
+            # 發生任何異常，該組全部設為失敗
             comp_ok = False
-
+            correct_ok = False
+            opt_correct_ok = False
+            print(f"{RED}Skipping combinations due to error: {e}{RESET}")
         # Cleanup intermediate .ll files
         for f in [aes_obf_ll, aes_opt_obf_ll]:
             if os.path.exists(f):

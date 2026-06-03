@@ -44,7 +44,8 @@ def get_combinations(full=False):
     else:
         return [
             [], # Baseline
-            ["string", "const", "sub"] # Data Obf
+            ["string", "const", "sub"], # Data Obf
+            ["string", "const", "sub", "split", "bcf"]
         ]
 
 def get_flags_for_combination(comb):
@@ -198,7 +199,11 @@ def main():
 
             # C. Verify correctness
             stdout_obf, _ = run_cmd([obf_bin])
-            correct_ok = "[✔] SQLite Test Passed!" in stdout_obf
+            if stdout_obf.strip() == stdout.strip():
+                correct_ok = True
+                benchmark_cmds.append((name, obf_bin))
+            else:
+                print(f"{RED}  [Warning] {name} output mismatch!{RESET}")
 
             # D. Compile optimized obfuscated binary (Obf + standard O3)
             print(f"  Optimizing and compiling {name} (+O3) to ELF...")
@@ -207,15 +212,15 @@ def main():
             opt_elf_size = os.path.getsize(opt_obf_bin)
 
             stdout_opt, _ = run_cmd([opt_obf_bin])
-            opt_correct_ok = "[✔] SQLite Test Passed!" in stdout_opt
-
-            if correct_ok:
-                benchmark_cmds.append((name, obf_bin))
-            if opt_correct_ok:
+            if stdout_opt.strip() == stdout.strip():
+                opt_correct_ok = True
                 benchmark_cmds.append((f"{name} (+O3)", opt_obf_bin))
+            else:
+                print(f"{RED}  [Warning] {name} (+O3) output mismatch!{RESET}")
 
         except Exception as e:
-            comp_ok = False
+            # 強制將受污染的編譯狀態歸零，避免殘留數據寫入 Table
+            comp_ok, correct_ok, opt_correct_ok = False, False, False
             print(f"{RED}Error compiling/verifying combination {name}: {e}{RESET}")
 
         # Cleanup intermediate .ll files
