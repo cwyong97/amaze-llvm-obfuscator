@@ -446,7 +446,12 @@ bool applyOneRound(Function &F, RNG &gen, std::uniform_int_distribution<> &dist)
             if (auto *CI = dyn_cast<CallInst>(&I)) {
                 if (Function *Callee = CI->getCalledFunction()) {
                     if (Callee->isIntrinsic()) {
-                        continue;
+                        unsigned iid = Callee->getIntrinsicID();
+                        if (iid == Intrinsic::lifetime_start || iid == Intrinsic::lifetime_end ||
+                            iid == Intrinsic::dbg_declare || iid == Intrinsic::dbg_value ||
+                            iid == Intrinsic::dbg_label || iid == Intrinsic::dbg_addr) {
+                            continue;
+                        }
                     }
                 }
             }

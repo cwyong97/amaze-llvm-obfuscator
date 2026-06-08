@@ -93,7 +93,6 @@ llvmGetPassPluginInfo() {
                     return false;
                 });
                 
-            // 2. 註冊自動擴充點 (對應 -O1, -O2, -O3, -obf-all 等全自動管線)
             PB.registerOptimizerLastEPCallback(
                 [](ModulePassManager &MPM, OptimizationLevel Level) {
                     if (EnableAllObf || EnableStringObf) {
@@ -102,17 +101,20 @@ llvmGetPassPluginInfo() {
                     if (EnableAllObf || EnableConstantTagging || EnableConstantObf) {
                         MPM.addPass(ConstantTaggingPass());
                     }
-                    if (EnableAllObf || EnableConstantObf) {
-                        MPM.addPass(createModuleToFunctionPassAdaptor(ConstantObfuscation()));
-                    }
-                    if (EnableAllObf || EnableSubstitution) {
-                        MPM.addPass(createModuleToFunctionPassAdaptor(Substitution()));
-                    }
                     if (EnableAllObf || EnableSplit) {
                         MPM.addPass(createModuleToFunctionPassAdaptor(SplitBasicBlocks()));
                     }
                     if (EnableAllObf || EnableBCF) {
                         MPM.addPass(createModuleToFunctionPassAdaptor(BogusControlFlow()));
+                    }
+                    // if (EnableAllObf || EnableStringObf) {
+                    //     MPM.addPass(StringObfuscation());
+                    // }
+                    if (EnableAllObf || EnableConstantObf) {
+                        MPM.addPass(createModuleToFunctionPassAdaptor(ConstantObfuscation()));
+                    }
+                    if (EnableAllObf || EnableSubstitution) {
+                        MPM.addPass(createModuleToFunctionPassAdaptor(Substitution()));
                     }
                 });
         }
