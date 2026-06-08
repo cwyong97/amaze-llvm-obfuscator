@@ -3,10 +3,15 @@ build/
 *.so
 *.ll
 *_bin
+*.bin
 *.i64
 *.yaml
 .DS_Store
 .vscode/
+
+# Internal docs (not for public repo)
+CLAUDE.md
+DEV_GUIDE.md
 
 # AmaZe testing temp folders
 test/bin/
