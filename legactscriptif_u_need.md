@@ -29,3 +29,11 @@ opt-15 -O3 -S test/output.ll -o test/opt_output.ll
 ```cmd=
 clang-15 test/output.ll -o Workoutput
 ```
+
+```cmd=
+clang-15 -S -emit-llvm -O1 test_license.c -o test_license.ll
+opt-15 -load-pass-plugin=build/libObfPass.so -O3 -obf-string -str-magic-symbol "my_license_key" -str-magic-value "1234567890" -S test_license.ll -o test_license.ll
+clang-15 -O3 -g -o test_license_bin test_license.ll
+./test_license_bin
+
+```
