@@ -104,8 +104,7 @@ to exceed 60 seconds.
 #### Scenario B: Unoptimized Build (`-O0`)
 When compiled with `-O0` (disabling `SimplifyCFG`), all physical branches injected by Bogus Control Flow (BCF) are preserved.
 - **Observation**: Because `angr` must evaluate the satisfiability of the branches, and we configured it to explicitly model uninitialized `volatile` seeds as symbolic variables (`SYMBOL_FILL_UNCONSTRAINED_MEMORY`), `angr` forks its state at every opaque predicate.
-- **Analysis Impact**: The execution generates an exponentially growing number of state forks, exceeding 54,000 active states within the first few minutes of exploration. This exhausts the available exploration timeout budget before reaching the core logic.
-
+- **Analysis Impact**: The execution generates an exponentially growing number of state forks, exceeding 54,000 active states and exhausting the 6,000-second exploration timeout budget before reaching the core logic.
 ### 2.2 Empirical Test Results
 
 | Binary Configuration | Time to Solve | Active States | Status |
